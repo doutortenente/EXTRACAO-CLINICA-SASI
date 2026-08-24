@@ -1,18 +1,44 @@
-# 🏥 SASI - Extração e Compilação de Dados Clínicos
+# EXTRACAO-CLINICA-SASI
 
-> **Sistema de Extração e Compilação de Dados Clínicos para UTI - Dr. Nicolas**
-> **Versão:** 1.0.0
-> **Data:** 24/08/2026
-> **Status:** 🟢 Produção
+Motor clínico local para transformar JSON bruto extraído de folhas da UTI em texto copiável e flags separadas.
 
----
+## Escopo atual
 
-## 📋 Descrição
+- Soma determinística de ganhos, diurese, drenos, resíduo gástrico e ultrafiltração.
+- Máximo, mínimo e contagem de limites dos sinais vitais.
+- Conferência entre células e totais manuscritos sem confiar no total da folha.
+- Rejeição de séries vazias, identificadores duplicados/injetados e estruturas incompatíveis com o contrato clínico.
+- Formatação clínica conforme `BRIEFING.md` auditado.
+- Interface de terminal, OCR local e serviço HTTP restrito ao próprio computador.
+- Imagens e PDFs escaneados passam por Tesseract local; nenhum documento é enviado à rede.
 
-Sistema especializado em extrair dados clínicos estruturados de:
-- Folhas de enfermagem (sinais vitais, balanço hídrico)
-- Exames laboratoriais (hemograma, bioquímica, gasometria)
-- Prescrições médicas
-- Laudos de imagem
+## Fora do escopo
 
-O sistema opera sob **regra de ZERO ALUCINAÇÃO**: campos sem fonte legível retornam `null` com warnings, nunca valores inventados.
+- Não é frontend, banco, prontuário ou cópia do SASI-V3.
+- Não grava no Supabase.
+- Não contém serviço de OCR em nuvem nem credenciais.
+- OCR transforma arquivo em texto bruto; a revisão humana e a estruturação em JSON continuam obrigatórias.
+
+## Uso
+
+```bash
+PYTHONPATH=src python3 scripts/extract_ocr.py folha.png --output texto-extraido.json
+PYTHONPATH=src python3 -m extracao_clinica_sasi.cli --file examples/leito-sintetico.json
+PYTHONPATH=src python3 -m extracao_clinica_sasi.server --host 127.0.0.1 --port 8765
+```
+
+Rotas locais:
+
+- `GET /healthz`
+- `POST /v1/compile` com `Content-Type: application/json`
+
+## Verificação
+
+```bash
+PYTHONPATH=src python3 -m unittest discover -s tests -v
+python3 -m compileall -q src tests
+```
+
+## Regra clínica
+
+Dado ausente ou ilegível permanece ausente. O modelo extrai células; Python calcula. Flags e divergências ficam fora do bloco copiável.
