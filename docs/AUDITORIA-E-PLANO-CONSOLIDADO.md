@@ -106,3 +106,18 @@ Já existe workflow n8n, serviço systemd, instalador e 2 testes. Os testes pass
 ## Limite honesto
 
 Os PDFs/fotos clínicos dos leitos citados na conversa não estão presentes. Portanto, o software pode ser entregue e comprovado com dados sintéticos, mas os valores clínicos dos leitos 01–13 permanecem `null`/não certificados até as fontes reais serem fornecidas.
+
+## Auditoria pós-entrega
+
+Uma segunda revisão adversarial encontrou e corrigiu falhas que a primeira entrega deixou passar:
+
+1. Ausência da lista de perdas era tratada como perda zero e podia gerar BH falso.
+2. Vital sem nenhuma célula gerava `? - ?` no bloco copiável.
+3. Máximo/mínimo informado sem as células da janela não exigia revisão.
+4. Dieta com fonte era omitida quando não havia balanço.
+5. Dreno, resíduo gástrico e ultrafiltração eram agrupados como “Outras perdas”.
+6. Lista vazia de leitos e leitos duplicados eram aceitos.
+7. A automação contínua não executava OCR real no GitHub.
+8. O instalador permitia mutação sem garantir que existia banco para restauração.
+
+Todos ganharam testes regressivos antes da correção.

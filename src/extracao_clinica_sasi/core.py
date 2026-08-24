@@ -152,9 +152,19 @@ def calcular_balanco(
     perdas_ml = 0.0
     itens_ganho: list[tuple[str, float]] = []
     itens_perda: list[tuple[str, float]] = []
-    completos = {"ganho": True, "perda": True}
+    completos = {"ganho": ganhos is not None, "perda": perdas is not None}
+    if ganhos is None:
+        warnings.append("ganhos ausentes — BH não calculado; revisão humana obrigatória")
+    if perdas is None:
+        warnings.append("perdas ausentes — BH não calculado; revisão humana obrigatória")
 
-    for itens, lado_informado in ((ganhos or [], "ganho"), (perdas or [], "perda")):
+    for itens, lado_informado in ((ganhos, "ganho"), (perdas, "perda")):
+        if itens is None:
+            continue
+        if not isinstance(itens, list):
+            warnings.append(f"lista de {lado_informado}s inválida — NÃO SOMADA")
+            completos[lado_informado] = False
+            continue
         for item in itens:
             if not isinstance(item, dict):
                 warnings.append("item de balanço inválido — NÃO SOMADO")
@@ -317,6 +327,13 @@ def compilar_leito(
                 f"{nome}: {resumo['invalid_count']} célula(s) ilegível(is) — revisar fonte"
             )
             continue
+        if resumo["max"] is None or resumo["min"] is None:
+            flags_taticos.append(f"{nome}: sem célula numérica legível — linha omitida")
+            continue
+        if not resumo["exact_count"]:
+            flags_taticos.append(
+                f"{nome}: máximo/mínimo fornecidos sem células da janela — revisão humana obrigatória"
+            )
         flags_taticos.extend(resumo["physiological_errors"])
         separador = " / " if nome == "Dx" else " - "
         uma_casa = nome == "TAX"
@@ -335,7 +352,7 @@ def compilar_leito(
 
     ganhos_brutos = leito.get("ganhos")
     perdas_brutas = leito.get("perdas")
-    tem_balanco = bool(ganhos_brutos) or bool(perdas_brutas)
+    tem_balanco = "ganhos" in leito or "perdas" in leito
     if tem_balanco:
         balanco = calcular_balanco(ganhos_brutos, perdas_brutas)
         flags_taticos.extend(balanco["warnings"])
@@ -359,16 +376,30 @@ def compilar_leito(
             diurese or any("diur" in _normalizar(nome) for nome, _ in balanco["itens_perda"])
         ):
             linhas.append(f"Diurese: {_formatar_numero(diurese)} ml")
-        if balanco["perdas_completas"] and balanco["perdas_ml"] > diurese:
-            linhas.append(f"Outras perdas: {_formatar_numero(balanco['perdas_ml'] - diurese)} ml")
+        if balanco["perdas_completas"]:
+            for nome_perda, volume in balanco["itens_perda"]:
+                normalizado = _normalizar(nome_perda)
+                if "diur" in normalizado or "urina" in normalizado:
+                    continue
+                rotulo = (
+                    "UF"
+                    if normalizado == "uf"
+                    else nome_perda[:1].upper() + nome_perda[1:]
+                )
+                linhas.append(f"{rotulo}: {_formatar_numero(volume)} ml")
+        tem_item_balanco = bool(balanco["itens_ganho"] or balanco["itens_perda"])
         if balanco["balanco_completo"]:
-            sinal = "+" if balanco["balanco_ml"] >= 0 else ""
-            linhas.append(f"BH: {sinal}{_formatar_numero(balanco['balanco_ml'])} ml")
-        flags_taticos.extend(
-            _comparar_conferencia(leito.get("conferencia_enfermagem"), balanco)
-        )
-    elif leito.get("evacuacao") is not None:
-        linhas.append(f"Evacuação: {leito['evacuacao']}")
+            if tem_item_balanco:
+                sinal = "+" if balanco["balanco_ml"] >= 0 else ""
+                linhas.append(f"BH: {sinal}{_formatar_numero(balanco['balanco_ml'])} ml")
+            flags_taticos.extend(
+                _comparar_conferencia(leito.get("conferencia_enfermagem"), balanco)
+            )
+    else:
+        if leito.get("dieta") is not None:
+            linhas.append(f"Dieta: {leito['dieta']}")
+        if leito.get("evacuacao") is not None:
+            linhas.append(f"Evacuação: {leito['evacuacao']}")
 
     secoes = (
         ("## Laboratório:", leito.get("laboratorio")),
@@ -397,12 +428,21 @@ def compilar_payload(payload: dict[str, Any]) -> dict[str, Any]:
     leitos = payload.get("leitos") if "leitos" in payload else [payload]
     if not isinstance(leitos, list) or not all(isinstance(item, dict) for item in leitos):
         raise ValueError("leitos deve ser uma lista de objetos")
+    if not leitos:
+        raise ValueError("leitos não pode ser uma lista vazia")
     blocos: list[str] = []
     flags: list[dict[str, str]] = []
+    identificadores: set[str] = set()
     for leito in leitos:
         identificador = leito.get("leito")
         if identificador is None or not str(identificador).strip():
             raise ValueError("leito é obrigatório; dado sem destino não pode ser compilado")
+        chave = str(identificador).strip().upper()
+        if chave.isdigit():
+            chave = str(int(chave))
+        if chave in identificadores:
+            raise ValueError(f"leito duplicado: {identificador}")
+        identificadores.add(chave)
         bloco, itens = compilar_leito(leito, meta)
         blocos.append(bloco)
         for item in itens:

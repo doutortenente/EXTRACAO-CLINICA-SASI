@@ -3,6 +3,7 @@ import unittest
 from extracao_clinica_sasi.core import (
     calcular_balanco,
     compilar_leito,
+    compilar_payload,
     resumir_vital,
 )
 
@@ -59,6 +60,17 @@ class BalancoTests(unittest.TestCase):
         )
         self.assertEqual(resultado["ganhos_ml"], 300)
         self.assertFalse(resultado["ganhos_completos"])
+
+    def test_lado_ausente_nao_equivale_a_zero(self):
+        resultado = calcular_balanco(
+            ganhos=[{"nome": "dieta", "ml": 500}], perdas=None
+        )
+        self.assertTrue(resultado["ganhos_completos"])
+        self.assertFalse(resultado["perdas_completas"])
+        self.assertFalse(resultado["balanco_completo"])
+        self.assertTrue(resultado["requires_human_review"])
+        self.assertTrue(any("perdas ausentes" in item for item in resultado["warnings"]))
+
 
 class VitalTests(unittest.TestCase):
     def test_maximo_minimo_e_flags_sao_deterministicos(self):
@@ -182,6 +194,62 @@ class CompilacaoTests(unittest.TestCase):
         )
         self.assertIn("SpO2: 145 - 98 %", bloco)
         self.assertTrue(any("fisiológico" in item for item in flags))
+
+    def test_vital_sem_nenhuma_celula_e_omitido(self):
+        bloco, flags = compilar_leito(
+            {"leito": "09", "vitais": {"FC": []}}, {}
+        )
+        self.assertNotIn("FC:", bloco)
+        self.assertTrue(any("sem célula" in item for item in flags))
+
+    def test_dieta_com_fonte_aparece_sem_balanco(self):
+        bloco, _ = compilar_leito(
+            {"leito": "10", "dieta": "TNE 40 ml/h"}, {}
+        )
+        self.assertIn("Dieta: TNE 40 ml/h", bloco)
+
+    def test_lista_vazia_de_um_lado_nao_esconde_lado_ausente(self):
+        bloco, flags = compilar_leito({"leito": "10A", "ganhos": []}, {})
+        self.assertNotIn("BH:", bloco)
+        self.assertTrue(any("perdas ausentes" in item for item in flags))
+
+    def test_conferencia_diverge_quando_listas_estao_vazias(self):
+        bloco, flags = compilar_leito({
+            "leito": "10B",
+            "ganhos": [],
+            "perdas": [],
+            "conferencia_enfermagem": {"ganhos": 100, "perdas": 0, "bh": 100},
+        }, {})
+        self.assertNotIn("BH:", bloco)
+        self.assertTrue(any("CONFERÊNCIA" in item for item in flags))
+
+    def test_perdas_especificas_recebem_linhas_proprias(self):
+        bloco, _ = compilar_leito({
+            "leito": "11",
+            "ganhos": [{"nome": "hidratação", "ml": 1000}],
+            "perdas": [
+                {"nome": "diurese", "ml": 400},
+                {"nome": "dreno torácico", "ml": 100},
+                {"nome": "resíduo gástrico", "ml": 50},
+                {"nome": "UF", "ml": 200},
+            ],
+        }, {})
+        self.assertIn("Dreno torácico: 100 ml", bloco)
+        self.assertIn("Resíduo gástrico: 50 ml", bloco)
+        self.assertIn("UF: 200 ml", bloco)
+        self.assertNotIn("Outras perdas:", bloco)
+
+    def test_max_min_sem_celulas_exige_revisao(self):
+        _, flags = compilar_leito(
+            {"leito": "12", "vitais": {"PAM": {"max": 80, "min": 60}}}, {}
+        )
+        self.assertTrue(any("sem células" in item for item in flags))
+
+    def test_payload_rejeita_lista_vazia_e_leito_duplicado(self):
+        with self.assertRaises(ValueError):
+            compilar_payload({"leitos": []})
+        with self.assertRaises(ValueError):
+            compilar_payload({"leitos": [{"leito": "01"}, {"leito": "01"}]})
 
 if __name__ == "__main__":
     unittest.main()
