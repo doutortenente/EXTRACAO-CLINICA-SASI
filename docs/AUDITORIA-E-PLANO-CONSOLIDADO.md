@@ -121,3 +121,18 @@ Uma segunda revisão adversarial encontrou e corrigiu falhas que a primeira entr
 8. O instalador permitia mutação sem garantir que existia banco para restauração.
 
 Todos ganharam testes regressivos antes da correção.
+
+### Terceira auditoria adversarial
+
+Uma nova rodada encontrou falhas de contrato ainda não cobertas:
+
+1. Série de balanço vazia era interpretada como volume zero.
+2. Leito sem dado clínico produzia uma seção vazia sem alerta.
+3. Vital desconhecido ou estrutura de vitais inválida era descartado silenciosamente.
+4. Objetos JSON em laboratório/conduta vazavam como representação interna do Python.
+5. Laboratório e terapias em lista eram numerados indevidamente.
+6. Metadado inválido era ignorado em vez de rejeitado.
+7. Quebra de linha no identificador do leito permitia contaminar o bloco clínico.
+8. Campos escalares estruturados como objeto não eram rejeitados.
+
+As entradas agora falham de modo explícito ou são omitidas com alerta separado; somente Impressão e Condutas recebem numeração.

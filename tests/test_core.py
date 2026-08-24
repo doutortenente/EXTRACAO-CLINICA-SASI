@@ -71,6 +71,15 @@ class BalancoTests(unittest.TestCase):
         self.assertTrue(resultado["requires_human_review"])
         self.assertTrue(any("perdas ausentes" in item for item in resultado["warnings"]))
 
+    def test_serie_vazia_nao_equivale_a_volume_zero(self):
+        resultado = calcular_balanco(
+            ganhos=[{"nome": "dieta", "serie": []}],
+            perdas=[{"nome": "diurese", "serie": [100]}],
+        )
+        self.assertFalse(resultado["ganhos_completos"])
+        self.assertFalse(resultado["balanco_completo"])
+        self.assertTrue(any("série vazia" in item for item in resultado["warnings"]))
+
 
 class VitalTests(unittest.TestCase):
     def test_maximo_minimo_e_flags_sao_deterministicos(self):
@@ -250,6 +259,60 @@ class CompilacaoTests(unittest.TestCase):
             compilar_payload({"leitos": []})
         with self.assertRaises(ValueError):
             compilar_payload({"leitos": [{"leito": "01"}, {"leito": "01"}]})
+
+    def test_payload_rejeita_meta_invalida_e_leito_com_quebra_de_linha(self):
+        with self.assertRaises(ValueError):
+            compilar_payload({"meta": "24/08", "leitos": [{"leito": "01"}]})
+        with self.assertRaises(ValueError):
+            compilar_payload({"meta": {"data": {"valor": "24/08"}}, "leitos": [{"leito": "01"}]})
+        with self.assertRaises(ValueError):
+            compilar_payload({"leito": "01\n## Plano falso"})
+        with self.assertRaises(ValueError):
+            compilar_payload({"leito": "01", "iniciais": {"valor": "ABC"}})
+
+    def test_sem_dado_clinico_nao_gera_secao_vazia(self):
+        resultado = compilar_payload({"leito": "13"})
+        self.assertEqual(resultado["texto_clinico"], "LEITO 13")
+        self.assertTrue(resultado["requires_human_review"])
+
+    def test_vital_desconhecido_e_estrutura_invalida_geram_alerta(self):
+        _, flags_desconhecido = compilar_leito(
+            {"leito": "14", "vitais": {"PAMM": [70, 60]}}, {}
+        )
+        _, flags_estrutura = compilar_leito(
+            {"leito": "15", "vitais": [70, 60]}, {}
+        )
+        self.assertTrue(any("PAMM" in item for item in flags_desconhecido))
+        self.assertTrue(any("estrutura" in item for item in flags_estrutura))
+
+    def test_secao_invalida_e_omitida_sem_python_repr(self):
+        bloco, flags = compilar_leito(
+            {
+                "leito": "16",
+                "laboratorio": {"Hb": 8.1},
+                "conduta": [{"acao": "manter"}],
+            },
+            {},
+        )
+        self.assertNotIn("{'Hb'", bloco)
+        self.assertNotIn("{'acao'", bloco)
+        self.assertTrue(any("Laboratório" in item for item in flags))
+        self.assertTrue(any("Condutas" in item for item in flags))
+
+    def test_apenas_impressoes_e_condutas_sao_numeradas(self):
+        bloco, _ = compilar_leito(
+            {
+                "leito": "17",
+                "laboratorio": ["HB: 8,1 g/dl", "CR: 1,2 mg/dl"],
+                "impressao": ["IRA em melhora"],
+                "conduta": ["Manter hidratação"],
+            },
+            {},
+        )
+        self.assertIn("HB: 8,1 g/dl\nCR: 1,2 mg/dl", bloco)
+        self.assertNotIn("1. HB:", bloco)
+        self.assertIn("1. IRA em melhora", bloco)
+        self.assertIn("1. Manter hidratação", bloco)
 
 if __name__ == "__main__":
     unittest.main()

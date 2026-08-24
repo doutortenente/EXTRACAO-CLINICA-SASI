@@ -7,6 +7,7 @@ Motor clínico local para transformar JSON bruto extraído de folhas da UTI em t
 - Soma determinística de ganhos, diurese, drenos, resíduo gástrico e ultrafiltração.
 - Máximo, mínimo e contagem de limites dos sinais vitais.
 - Conferência entre células e totais manuscritos sem confiar no total da folha.
+- Rejeição de séries vazias, identificadores duplicados/injetados e estruturas incompatíveis com o contrato clínico.
 - Formatação clínica conforme `BRIEFING.md` auditado.
 - Interface de terminal, OCR local e serviço HTTP restrito ao próprio computador.
 - Imagens e PDFs escaneados passam por Tesseract local; nenhum documento é enviado à rede.

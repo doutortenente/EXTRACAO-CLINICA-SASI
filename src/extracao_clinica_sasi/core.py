@@ -115,6 +115,9 @@ def _volume_item(item: dict[str, Any], warnings: list[str]) -> tuple[float | Non
         if not isinstance(serie, list):
             warnings.append(f"'{nome}': série inválida — NÃO SOMADO")
             return None, False
+        if not serie:
+            warnings.append(f"'{nome}': série vazia — NÃO SOMADO")
+            return None, False
         valores: list[float] = []
         invalidos = 0
         for valor in serie:
@@ -299,25 +302,42 @@ def _comparar_conferencia(
     return flags
 
 
+def _texto_linha(valor: Any) -> str:
+    """Normaliza campo escalar para uma única linha sem inventar conteúdo."""
+    return " ".join(str(valor).split())
+
+
 def compilar_leito(
     leito: dict[str, Any], meta: dict[str, Any] | None = None
 ) -> tuple[str, list[str]]:
     meta = meta or {}
-    cabecalho = f"LEITO {leito.get('leito')}"
+    flags_taticos: list[str] = []
+    cabecalho = f"LEITO {_texto_linha(leito.get('leito'))}"
     if leito.get("iniciais"):
-        cabecalho += f" — {leito['iniciais']}"
+        cabecalho += f" — {_texto_linha(leito['iniciais'])}"
     if leito.get("dia_internacao"):
-        cabecalho += f" — DH {leito['dia_internacao']}"
+        cabecalho += f" — DH {_texto_linha(leito['dia_internacao'])}"
     linhas = [cabecalho]
-    if meta.get("data") or meta.get("turno"):
-        linhas[0] += f" — {meta.get('data', '')} {meta.get('turno', '')}".rstrip()
-    janela = meta.get("janela")
+    data = _texto_linha(meta.get("data", ""))
+    turno = _texto_linha(meta.get("turno", ""))
+    if data or turno:
+        linhas[0] += f" — {data} {turno}".rstrip()
+    janela = _texto_linha(meta.get("janela", ""))
+    inicio_sinais = len(linhas)
     linhas.extend(["", f"## Sinais vitais + balanço{f' [{janela}]' if janela else ''}:"])
 
-    suporte = str(leito.get("sup_o2") or "").strip()
+    suporte = _texto_linha(leito.get("sup_o2") or "")
     vitais_brutos = leito.get("vitais")
-    vitais: dict[str, Any] = vitais_brutos if isinstance(vitais_brutos, dict) else {}
-    flags_taticos: list[str] = []
+    if vitais_brutos is None:
+        vitais: dict[str, Any] = {}
+    elif isinstance(vitais_brutos, dict):
+        vitais = vitais_brutos
+        desconhecidos = [str(nome) for nome in vitais if nome not in ORDEM_VITAIS]
+        for nome in sorted(desconhecidos):
+            flags_taticos.append(f"vital desconhecido '{nome}' — linha omitida")
+    else:
+        vitais = {}
+        flags_taticos.append("vitais: estrutura inválida — revisão humana obrigatória")
     for nome in ORDEM_VITAIS:
         if nome not in vitais:
             continue
@@ -362,7 +382,7 @@ def compilar_leito(
             for nome, volume in balanco["itens_perda"]
             if "diur" in _normalizar(nome) or "urina" in _normalizar(nome)
         )
-        dieta = leito.get("dieta")
+        dieta = _texto_linha(leito.get("dieta")) if leito.get("dieta") is not None else None
         ingesta_confiavel = bool(balanco["itens_ganho"]) and balanco["ganhos_completos"]
         if dieta is not None and ingesta_confiavel:
             linhas.append(f"Dieta: {dieta} | Ingesta hídrica: {ganhos} ml")
@@ -371,7 +391,7 @@ def compilar_leito(
         elif ingesta_confiavel:
             linhas.append(f"Ingesta hídrica: {ganhos} ml")
         if leito.get("evacuacao") is not None:
-            linhas.append(f"Evacuação: {leito['evacuacao']}")
+            linhas.append(f"Evacuação: {_texto_linha(leito['evacuacao'])}")
         if balanco["perdas_completas"] and (
             diurese or any("diur" in _normalizar(nome) for nome, _ in balanco["itens_perda"])
         ):
@@ -397,34 +417,65 @@ def compilar_leito(
             )
     else:
         if leito.get("dieta") is not None:
-            linhas.append(f"Dieta: {leito['dieta']}")
+            linhas.append(f"Dieta: {_texto_linha(leito['dieta'])}")
         if leito.get("evacuacao") is not None:
-            linhas.append(f"Evacuação: {leito['evacuacao']}")
+            linhas.append(f"Evacuação: {_texto_linha(leito['evacuacao'])}")
+
+    if len(linhas) == inicio_sinais + 2:
+        del linhas[inicio_sinais:]
 
     secoes = (
-        ("## Laboratório:", leito.get("laboratorio")),
-        ("## Terapias vigentes:", leito.get("terapias")),
-        ("## Exame físico:", leito.get("exame_fisico")),
-        ("## Evolução / Eventos 24 h:", leito.get("evolucao")),
-        ("## Impressão / Problemas ativos:", leito.get("impressao")),
-        ("## Plano terapeutico e Condutas:", leito.get("conduta")),
+        ("## Laboratório:", "Laboratório", leito.get("laboratorio"), False),
+        ("## Terapias vigentes:", "Terapias vigentes", leito.get("terapias"), False),
+        ("## Exame físico:", "Exame físico", leito.get("exame_fisico"), False),
+        ("## Evolução / Eventos 24 h:", "Evolução", leito.get("evolucao"), False),
+        ("## Impressão / Problemas ativos:", "Impressão", leito.get("impressao"), True),
+        (
+            "## Plano terapêutico e Condutas:",
+            "Plano terapêutico e Condutas",
+            leito.get("conduta"),
+            True,
+        ),
     )
-    for titulo, conteudo in secoes:
+    for titulo, rotulo, conteudo, numerar in secoes:
         if conteudo in (None, "", []):
             continue
-        linhas.extend(["", titulo])
-        if isinstance(conteudo, list):
-            linhas.extend(f"{indice}. {item}" for indice, item in enumerate(conteudo, 1))
+        if isinstance(conteudo, str):
+            itens_secao = [conteudo.strip()] if conteudo.strip() else []
+        elif isinstance(conteudo, list) and all(isinstance(item, str) for item in conteudo):
+            itens_secao = [item.strip() for item in conteudo if item.strip()]
         else:
-            linhas.append(str(conteudo))
+            flags_taticos.append(
+                f"{rotulo}: estrutura inválida — seção omitida; revisão humana obrigatória"
+            )
+            continue
+        if not itens_secao:
+            continue
+        linhas.extend(["", titulo])
+        if numerar:
+            linhas.extend(
+                f"{indice}. {item}" for indice, item in enumerate(itens_secao, 1)
+            )
+        else:
+            linhas.extend(itens_secao)
 
+    if len(linhas) == 1:
+        flags_taticos.append("nenhum dado clínico válido — revisão humana obrigatória")
     return "\n".join(linhas), flags_taticos
 
 
 def compilar_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("payload deve ser um objeto JSON")
-    meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+    if "meta" in payload and not isinstance(payload["meta"], dict):
+        raise ValueError("meta deve ser um objeto JSON")
+    meta = payload.get("meta", {})
+    for campo in ("unidade", "data", "turno", "janela"):
+        valor = meta.get(campo)
+        if valor is not None and (
+            isinstance(valor, bool) or not isinstance(valor, (str, int, float))
+        ):
+            raise ValueError(f"meta.{campo} deve ser um valor escalar")
     leitos = payload.get("leitos") if "leitos" in payload else [payload]
     if not isinstance(leitos, list) or not all(isinstance(item, dict) for item in leitos):
         raise ValueError("leitos deve ser uma lista de objetos")
@@ -435,14 +486,28 @@ def compilar_payload(payload: dict[str, Any]) -> dict[str, Any]:
     identificadores: set[str] = set()
     for leito in leitos:
         identificador = leito.get("leito")
-        if identificador is None or not str(identificador).strip():
+        if (
+            identificador is None
+            or isinstance(identificador, bool)
+            or not isinstance(identificador, (str, int))
+            or not str(identificador).strip()
+        ):
             raise ValueError("leito é obrigatório; dado sem destino não pode ser compilado")
-        chave = str(identificador).strip().upper()
+        identificador_texto = str(identificador).strip()
+        if "\n" in identificador_texto or "\r" in identificador_texto:
+            raise ValueError("leito não pode conter quebra de linha")
+        chave = identificador_texto.upper()
         if chave.isdigit():
             chave = str(int(chave))
         if chave in identificadores:
             raise ValueError(f"leito duplicado: {identificador}")
         identificadores.add(chave)
+        for campo in ("iniciais", "dia_internacao", "sup_o2", "dieta", "evacuacao"):
+            valor = leito.get(campo)
+            if valor is not None and (
+                isinstance(valor, bool) or not isinstance(valor, (str, int, float))
+            ):
+                raise ValueError(f"{campo} deve ser um valor escalar")
         bloco, itens = compilar_leito(leito, meta)
         blocos.append(bloco)
         for item in itens:
