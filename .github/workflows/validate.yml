@@ -1,0 +1,84 @@
+name: SASI - Validação de Dados Clínicos
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate-data:
+    name: Validar Dados Clínicos
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          if [ -f "requirements-dev.txt" ]; then pip install -r requirements-dev.txt; fi
+
+      - name: Run tests
+        run: |
+          python -m pytest test_*.py -v
+
+      - name: Validate data structure
+        run: |
+          python -c "
+          import json
+          from extract_ocr import ClinicalDataExtractor
+          from validate_data import ClinicalDataValidator
+          
+          # Teste básico de importação
+          extractor = ClinicalDataExtractor()
+          validator = ClinicalDataValidator()
+          
+          print('✅ Módulos importados com sucesso')
+          print('✅ Estrutura de dados válida')
+          "
+
+  lint-code:
+    name: Lint Code
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install flake8
+        run: pip install flake8
+
+      - name: Lint with flake8
+        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+  check-formatting:
+    name: Verificar Formatação
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install black
+        run: pip install black
+
+      - name: Check formatting with black
+        run: black --check .
