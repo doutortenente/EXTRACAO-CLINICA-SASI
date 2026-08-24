@@ -1,0 +1,16 @@
+{
+  "meta": {"unidade": "UTI 2", "data": "24/08/2026", "turno": "noturno", "janela": "12 h"},
+  "leitos": [
+    {
+      "leito": "01",
+      "iniciais": "ABC",
+      "dia_internacao": "2º DIA",
+      "sup_o2": "AA",
+      "vitais": {"PAM": [72, 64, 61], "SpO2": [98, 94], "Dx": [150, 120]},
+      "ganhos": [{"nome": "dieta", "serie": [100, 200, 200]}],
+      "perdas": [{"nome": "diurese", "serie": [100, 100, 100]}],
+      "conferencia_enfermagem": {"ganhos": 500, "perdas": 300, "bh": 200},
+      "evacuacao": "ausente"
+    }
+  ]
+}
